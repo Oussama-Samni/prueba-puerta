@@ -1,0 +1,61 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prueba puerta</title>
+<style>
+body{font:17px system-ui;margin:0;padding:16px;background:#111;color:#eee}
+h1{font-size:20px;margin:0 0 12px}
+button{font:inherit;font-weight:700;padding:14px 18px;border:0;border-radius:12px;margin:0 8px 8px 0;background:#ff3d7f;color:#fff}
+button.b{background:#333}
+#res{font-size:22px;font-weight:800;margin:12px 0;min-height:1.4em}
+pre{background:#222;padding:10px;border-radius:8px;white-space:pre-wrap;font-size:13px}
+video{width:100%;border-radius:12px;background:#000}
+</style></head><body>
+<h1>Prueba de puerta (sin datos reales)</h1>
+<button id="camara">Escanear en vivo</button><button class="b" id="medir">Medir conexión</button>
+<div id="res"></div>
+<video id="v" playsinline muted hidden></video><canvas id="c" hidden></canvas>
+<pre id="log"></pre>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" integrity="sha384-hStSInNIZ8ljtOVrmrgf7zdHMapaLBWoSnPTtF0nzsybp4+LuhDz6sHuEVpWIX8o" crossorigin="anonymous"></script>
+<script>
+var U = 'https://script.google.com/macros/s/AKfycbzXAD0wzi_vgubvdHwcEdalfFLyirBdrMtqfsDYila_7zSx73nFnYf1iiPr1rKq8N0/exec';
+function log(t) { document.getElementById('log').textContent = t + '\n' + document.getElementById('log').textContent; }
+function res(t) { document.getElementById('res').textContent = t; }
+var lista = null;
+fetch(U + '?a=lista&n=200').then(function (r) { return r.json(); }).then(function (d) { lista = d.grupos; log('Lista de 200 grupos cargada'); }).catch(function (e) { log('Lista: ' + e); });
+document.getElementById('medir').onclick = async function () {
+  var ms = [];
+  for (var i = 0; i < 5; i++) { var t = performance.now(); await fetch(U + '?a=eco').then(function (r) { return r.json(); }); ms.push(Math.round(performance.now() - t)); }
+  log('Ida y vuelta a Google (5 veces): ' + ms.join(', ') + ' ms');
+};
+var leyendo = false, ultimo = '';
+document.getElementById('camara').onclick = async function () {
+  try {
+    var s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
+    var v = document.getElementById('v'), c = document.getElementById('c'), x = c.getContext('2d', { willReadFrequently: true });
+    v.srcObject = s; v.hidden = false; await v.play();
+    log('Cámara en vivo: OK ' + v.videoWidth + 'x' + v.videoHeight); res('Apunta al QR…');
+    leyendo = true; var t0 = performance.now();
+    (function mirar() {
+      if (!leyendo) return;
+      if (v.videoWidth) {
+        var w = Math.min(800, v.videoWidth), h = Math.round(v.videoHeight * w / v.videoWidth);
+        c.width = w; c.height = h; x.drawImage(v, 0, 0, w, h);
+        var q = jsQR(x.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+        if (q && q.data !== ultimo) {
+          ultimo = q.data; var leido = performance.now();
+          if (navigator.vibrate) navigator.vibrate(80);
+          res('QR leído en ' + Math.round(leido - t0) + ' ms');
+          // Lo que haría la puerta: enseñar el grupo ya (lista del móvil) y apuntar la entrada en segundo plano.
+          var g = lista ? lista[Math.floor(Math.random() * lista.length)] : null;
+          log('Leído: ' + q.data.slice(0, 50) + (g ? ' → en pantalla al momento: ' + g.grupo : ''));
+          fetch(U, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ qr: q.data.slice(0, 80) }) })
+            .then(function (r) { return r.json(); })
+            .then(function () { log('Entrada guardada en Google en ' + Math.round(performance.now() - leido) + ' ms (en segundo plano)'); })
+            .catch(function (e) { log('Google: ' + e); });
+          setTimeout(function () { ultimo = ''; t0 = performance.now(); res('Apunta al siguiente QR…'); }, 2500);
+        }
+      }
+      requestAnimationFrame(mirar);
+    })();
+  } catch (e) { log('Cámara: ' + e.name + ' ' + e.message); }
+};
+</script></body></html>
